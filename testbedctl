@@ -59,6 +59,9 @@ run_tests() {
   (
     cd tests
     bun run runner.ts $ITERATION_COUNT
+  )
+  (
+    cd plots
     Rscript process_results.R
     Rscript plot_results.R
   )
