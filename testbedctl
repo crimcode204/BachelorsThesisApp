@@ -1,0 +1,279 @@
+#!/bin/sh
+
+COMMAND=$1
+SUBCOMMAND=$2
+
+CONTAINER_INTERFACE=lo
+CONTAINER_NAME=video-stream-server
+ENCODED_NAME=bbb
+SERVER_FILE=server
+VIDEO_FILE=video
+
+ROOT_DIR=$(cd "$(dirname "$0")" && pwd)
+
+get_server_status() {
+  if [ "$(podman inspect $CONTAINER_NAME 2>/dev/null)" = "[]" ]; then
+    echo "not_exist"
+    return
+  fi
+
+  if [ "$(podman inspect $CONTAINER_NAME --format '{{.State.Status}}' 2>/dev/null)" != "running" ]; then
+    echo "not_running"
+    return
+  fi
+
+  echo "running"
+}
+
+print_commands() {
+cat << EOM
+Usage: ./testbedctl <command>
+Commands:
+  help                  - print this message
+  run [count]           - run the tests for 'count' iterations (5 by default) and plot the results
+  encode <input_file>   - encode a file to be used by the server
+
+Debug commands:
+  status                - print the current status of the container
+  server <subcommand>
+    build               - (re)build the server container
+    cubic               - start the server container with cubic
+    bbr                 - start the server container with bbr
+    stop                - stop the server container
+  network <subcommand>
+    reset               - reset all network rules
+    ideal               - set ideal network conditions            ( 20 Mbps)
+    lossy               - set lossy network conditions            (  5 Mbps + 2% loss rate)
+    jittery             - set jittery network conditions          (  5 Mbps + 50ms(±20ms fluctuation) delay)
+    lfn                 - set long-fat-network conditions         ( 50 Mbps + 100ms delay)
+    medium_bw           - set medium bandwidth network conditions (  5 Mbps)
+    lower_bw            - set medium bandwidth network conditions (  2 Mbps)
+    low_bw              - set medium bandwidth network conditions (900 Kbps)
+    lowest_bw           - set medium bandwidth network conditions (500 Kbps)
+EOM
+}
+
+run_tests() {
+  ITERATION_COUNT=${SUBCOMMAND:-5}
+
+  (
+    cd tests
+    bun run runner.ts $ITERATION_COUNT
+    Rscript process_results.R
+    Rscript plot_results.R
+  )
+
+  mkdir -p result_plots
+
+  SUITE=$(ls -td results/test_suite_* | head -1)
+  cp $SUITE/*.svg result_plots/
+
+  echo "Metrics plots saved in ./result_plots/"
+}
+
+check_status() {
+  SERVER_STATUS=$(get_server_status)
+
+  case "$SERVER_STATUS" in
+    not_exist)
+      echo "Container '$CONTAINER_NAME' does not exist"
+      return
+      ;;
+    not_running)
+      echo "Container '$CONTAINER_NAME' is not running"
+      return
+      ;;
+    running)
+      echo "Container '$CONTAINER_NAME' is running"
+      ;;
+  esac
+
+  TCP_CCA=$(podman exec $CONTAINER_NAME cat /proc/sys/net/ipv4/tcp_congestion_control)
+  echo "TCP congestion control algorithm: $TCP_CCA"
+
+  echo "Current network rules:"
+  echo "  $(podman exec $CONTAINER_NAME tc qdisc show dev $CONTAINER_INTERFACE)"
+}
+
+encode_video() {
+  rm -rf $VIDEO_FILE
+  mkdir -p $VIDEO_FILE
+
+  ffmpeg -i $SUBCOMMAND -c:v h264_nvenc \
+    -map 0:v -map 0:v -map 0:v -map 0:v -map 0:v -map 0:v \
+    -s:v:0 256x144   -b:v:0 200k  \
+    -s:v:1 426x240   -b:v:1 400k  \
+    -s:v:2 640x360   -b:v:2 800k  \
+    -s:v:3 854x480   -b:v:3 1500k \
+    -s:v:4 1280x720  -b:v:4 3000k \
+    -s:v:5 1920x1080 -b:v:5 6000k \
+    -g 48 -keyint_min 48 -sc_threshold 0 \
+    -seg_duration 2 \
+    -use_template 1 -use_timeline 1 -f dash \
+    ./$VIDEO_FILE/$ENCODED_NAME.mpd
+}
+
+build_server() {
+  podman build -t $CONTAINER_NAME $SERVER_FILE
+}
+
+start_cubic() {
+  if [ $(get_server_status) = "running" ]; then
+    echo "Container '$CONTAINER_NAME' is already running"
+    return
+  fi
+
+  podman run -d --replace --name $CONTAINER_NAME -p 3000:3000 \
+    --cap-add=NET_ADMIN \
+    --sysctl net.ipv4.tcp_congestion_control=cubic \
+    -v $ROOT_DIR/$VIDEO_FILE:/$VIDEO_FILE:ro \
+    localhost/$CONTAINER_NAME
+}
+
+start_bbr() {
+  if [ $(get_server_status) = "running" ]; then
+    echo "Container '$CONTAINER_NAME' is already running"
+    return
+  fi
+
+  podman run -d --replace --name $CONTAINER_NAME -p 3000:3000 \
+    --cap-add=NET_ADMIN \
+    --sysctl net.ipv4.tcp_congestion_control=bbr \
+    -v $ROOT_DIR/$VIDEO_FILE:/$VIDEO_FILE:ro \
+    localhost/$CONTAINER_NAME
+}
+
+stop_server() {
+  if [ $(get_server_status) = "not_running" ]; then
+    echo "Container '$CONTAINER_NAME' is not running"
+    return
+  fi
+
+  if [ $(get_server_status) = "not_exist" ]; then
+    echo "Container '$CONTAINER_NAME' does not exist"
+    return
+  fi
+
+  podman rm -f $CONTAINER_NAME
+}
+
+reset_rules_tc() {
+  podman exec $CONTAINER_NAME tc qdisc del dev $CONTAINER_INTERFACE root 2>/dev/null
+}
+set_ideal_tc() {
+  podman exec $CONTAINER_NAME tc qdisc replace dev $CONTAINER_INTERFACE root netem rate 20mbit
+}
+set_medium_bw_tc() {
+  podman exec $CONTAINER_NAME tc qdisc replace dev $CONTAINER_INTERFACE root netem rate 5mbit
+}
+set_lower_bw_tc() {
+  podman exec $CONTAINER_NAME tc qdisc replace dev $CONTAINER_INTERFACE root netem rate 2mbit
+}
+set_low_bw_tc() {
+  podman exec $CONTAINER_NAME tc qdisc replace dev $CONTAINER_INTERFACE root netem rate 900kbit
+}
+set_lowest_bw_tc() {
+  podman exec $CONTAINER_NAME tc qdisc replace dev $CONTAINER_INTERFACE root netem rate 500kbit
+}
+set_lossy_tc() {
+  podman exec $CONTAINER_NAME tc qdisc replace dev $CONTAINER_INTERFACE root netem rate 5mbit loss 2%
+}
+set_lfn_tc() {
+  podman exec $CONTAINER_NAME tc qdisc replace dev $CONTAINER_INTERFACE root netem rate 50mbit delay 100ms
+}
+set_jittery_tc() {
+  podman exec $CONTAINER_NAME tc qdisc replace dev $CONTAINER_INTERFACE root netem rate 5mbit delay 50ms 20ms
+}
+
+case $COMMAND in
+  help | "")
+    print_commands
+    ;;
+
+  run)
+    run_tests
+    ;;
+
+  encode)
+    if [ $# -ne 2 ]; then
+      echo 'Usage: ./testbedctl encode <input_file>'
+      exit 1
+    fi
+
+    encode_video
+    ;;
+
+  status)
+    check_status
+    ;;
+
+  server)
+    case $SUBCOMMAND in
+      build)
+        build_server
+        ;;
+      cubic)
+        start_cubic
+        ;;
+      bbr)
+        start_bbr
+        ;;
+      stop)
+        stop_server
+        ;;
+      *)
+        echo 'Unknown server command, use "./testbedctl help" to list all commands'
+        exit 1
+        ;;
+    esac
+    ;;
+
+  network)
+    case $SUBCOMMAND in
+      reset)
+        reset_rules_tc
+        ;;
+      ideal)
+        reset_rules_tc
+        set_ideal_tc
+        ;;
+      lossy)
+        reset_rules_tc
+        set_lossy_tc
+        ;;
+      jittery)
+        reset_rules_tc
+        set_jittery_tc
+        ;;
+      lfn)
+        reset_rules_tc
+        set_lfn_tc
+        ;;
+      medium_bw)
+        reset_rules_tc
+        set_medium_bw_tc
+        ;;
+      lower_bw)
+        reset_rules_tc
+        set_lower_bw_tc
+        ;;
+      low_bw)
+        reset_rules_tc
+        set_low_bw_tc
+        ;;
+      lowest_bw)
+        reset_rules_tc
+        set_lowest_bw_tc
+        ;;
+      *)
+        echo 'Unknown network command, use "./testbedctl help" to list all commands'
+        exit 1
+        ;;
+    esac
+    ;;
+
+  *)
+    echo 'Unknown command, use "./testbedctl help" to list all commands'
+    exit 1
+    ;;
+esac
