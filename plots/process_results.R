@@ -1,6 +1,8 @@
-library(jsonlite)
-library(purrr)
-library(dplyr)
+suppressPackageStartupMessages({
+  library(jsonlite)
+  library(purrr)
+  library(dplyr)
+})
 
 results_dir <- "../results"
 sub_dirs <- list.dirs(results_dir, recursive = FALSE)

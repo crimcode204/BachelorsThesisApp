@@ -2,6 +2,7 @@
 
 COMMAND=$1
 SUBCOMMAND=$2
+BBR_VERSION_FLAG=$3
 
 CONTAINER_INTERFACE=lo
 CONTAINER_NAME=video-stream-server
@@ -29,36 +30,39 @@ print_commands() {
 cat << EOM
 Usage: ./testbedctl <command>
 Commands:
-  help                  - print this message
-  run [count]           - run the tests for 'count' iterations (5 by default) and plot the results
-  encode <input_file>   - encode a file to be used by the server
+  help                    - print this message
+  run [count] [bbr_ver]   - run the testing pipeline and plot the results
+                            count - no. iterations (5 by default)
+                            bbr_ver - which algorithm variant to use 'bbr' or 'bbr3' ('bbr' by default)
+  encode <input_file>     - encode a file to be used by the server
 
 Debug commands:
-  status                - print the current status of the container
+  status                  - print the current status of the container
   server <subcommand>
-    build               - (re)build the server container
-    cubic               - start the server container with cubic
-    bbr                 - start the server container with bbr
-    stop                - stop the server container
+    build                 - (re)build the server container
+    cubic                 - start the server container with cubic
+    bbr                   - start the server container with bbr
+    stop                  - stop the server container
   network <subcommand>
-    reset               - reset all network rules
-    ideal               - set ideal network conditions            ( 20 Mbps)
-    lossy               - set lossy network conditions            (  5 Mbps + 2% loss rate)
-    jittery             - set jittery network conditions          (  5 Mbps + 50ms(±20ms fluctuation) delay)
-    lfn                 - set long-fat-network conditions         ( 50 Mbps + 100ms delay)
-    medium_bw           - set medium bandwidth network conditions (  5 Mbps)
-    lower_bw            - set medium bandwidth network conditions (  2 Mbps)
-    low_bw              - set medium bandwidth network conditions (900 Kbps)
-    lowest_bw           - set medium bandwidth network conditions (500 Kbps)
+    reset                 - reset all network rules
+    ideal                 - set ideal network conditions            ( 20 Mbps)
+    lossy                 - set lossy network conditions            (  5 Mbps + 2% loss rate)
+    jittery               - set jittery network conditions          (  5 Mbps + 50ms(±20ms fluctuation) delay)
+    lfn                   - set long-fat-network conditions         ( 50 Mbps + 100ms delay)
+    medium_bw             - set medium bandwidth network conditions (  5 Mbps)
+    lower_bw              - set medium bandwidth network conditions (  2 Mbps)
+    low_bw                - set medium bandwidth network conditions (900 Kbps)
+    lowest_bw             - set medium bandwidth network conditions (500 Kbps)
 EOM
 }
 
 run_tests() {
   ITERATION_COUNT=${SUBCOMMAND:-5}
+  BBR_VERSION=${BBR_VERSION_FLAG:-bbr}
 
   (
     cd tests
-    bun run runner.ts $ITERATION_COUNT
+    bun run runner.ts $ITERATION_COUNT $BBR_VERSION
   )
   (
     cd plots
@@ -146,6 +150,19 @@ start_bbr() {
     localhost/$CONTAINER_NAME
 }
 
+start_bbr3() {
+  if [ $(get_server_status) = "running" ]; then
+    echo "Container '$CONTAINER_NAME' is already running"
+    return
+  fi
+
+  podman run -d --replace --name $CONTAINER_NAME -p 3000:3000 \
+    --cap-add=NET_ADMIN \
+    --sysctl net.ipv4.tcp_congestion_control=bbr3 \
+    -v $ROOT_DIR/$VIDEO_FILE:/$VIDEO_FILE:ro \
+    localhost/$CONTAINER_NAME
+}
+
 stop_server() {
   if [ $(get_server_status) = "not_running" ]; then
     echo "Container '$CONTAINER_NAME' is not running"
@@ -220,6 +237,9 @@ case $COMMAND in
         ;;
       bbr)
         start_bbr
+        ;;
+      bbr3)
+        start_bbr3
         ;;
       stop)
         stop_server

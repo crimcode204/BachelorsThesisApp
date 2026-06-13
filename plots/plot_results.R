@@ -1,8 +1,10 @@
-library(ggplot2)
-library(dplyr)
-library(patchwork)
-library(scales)
-library(svglite)
+suppressPackageStartupMessages({
+  library(ggplot2)
+  library(dplyr)
+  library(patchwork)
+  library(scales)
+  library(svglite)
+})
 
 results_dir <- "../results"
 sub_dirs <- list.dirs(results_dir, recursive = FALSE)
@@ -109,7 +111,7 @@ for (current_case in test_cases) {
       title = paste("Scenario:", toupper(current_case)),
       subtitle = "TCP BBR vs CUBIC",
       x = "",
-      y = "Throughput (Mbps)",
+      y = "Throughput\n(Mbps)",
       color = "Algorithm",
       fill = "Algorithm",
       linetype = "Metric"
@@ -126,7 +128,7 @@ for (current_case in test_cases) {
       linewidth = 0.8
     ) +
     scale_color_manual(values = algorithm_colors) +
-    labs(x = "", y = "CWND (Segments)") +
+    labs(x = "", y = "CWND\n(Segments)") +
     theme_minimal() +
     theme(legend.position = "none", axis.text.x = element_blank())
 
@@ -172,7 +174,7 @@ for (current_case in test_cases) {
       linewidth = 1
     ) +
     scale_color_manual(values = algorithm_colors) +
-    labs(x = "Time (Seconds)", y = "Buffer Health\n(Sec)") +
+    labs(x = "Time (Seconds)", y = "Buffer Fullness\n(Ratio)") +
     theme_minimal() +
     theme(legend.position = "none")
 
@@ -187,7 +189,7 @@ for (current_case in test_cases) {
 
   # Export stacked plots
   dest_file <- file.path(suite, paste0("plot_", current_case, ".svg"))
-  ggsave(dest_file, plot = stacked_plot, width = 10, height = 9, bg = "white")
+  ggsave(dest_file, plot = stacked_plot, width = 12, height = 7, bg = "white")
 }
 
 # Startup delay plots

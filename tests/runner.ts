@@ -110,6 +110,7 @@ async function executeTestCaseNetwork(
 // Main testing loop
 async function runTest(
   cca: CongestionControlAlgorithm,
+  ccaVariant: String,
   testCase: TestCase,
   suiteDir: String,
   run: number,
@@ -121,7 +122,7 @@ async function runTest(
   const networkLogFile = `${suiteDir}/network_${cca}_${testCase}_run${run}.txt`;
 
   // Start container
-  await $`${setupScript} server ${cca}`.quiet();
+  await $`${setupScript} server ${ccaVariant}`.quiet();
 
   // Set initial network rule
   if (testCase === TestCase.Staircase || testCase === TestCase.PeriodicLossy) {
@@ -169,7 +170,7 @@ async function runTest(
       timeout: 60000,
     });
 
-    // Wait 3 mins
+    // Wait 5 mins
     // Change network rules during this time depending on the test case
     await executeTestCaseNetwork(testCase, page, browser);
   } catch (e: any) {
@@ -199,7 +200,15 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`Starting test suite: ${totalRuns} iterations`);
+  const bbrVersion = Bun.argv[3] || "bbr";
+  if (bbrVersion !== "bbr" && bbrVersion !== "bbr3") {
+    console.log(`Invalid bbr_version. Use 'bbr' or 'bbr3'.`);
+    process.exit(1);
+  }
+
+  console.log(
+    `Starting test suite: ${totalRuns} iterations using ${bbrVersion}`,
+  );
 
   await $`mkdir -p ../results`;
 
@@ -224,7 +233,6 @@ async function main() {
     ],
   });
 
-  const algorithms = Object.values(CongestionControlAlgorithm);
   const testCases = Object.values(TestCase);
   let exit_flag: number = 0;
 
@@ -232,9 +240,22 @@ async function main() {
     for (let run = 1; run <= totalRuns; run++) {
       console.log(`\nIteration ${run}/${totalRuns}`);
       for (const testCase of testCases) {
-        for (const algorithm of algorithms) {
-          await runTest(algorithm, testCase, suiteDir, run, browser);
-        }
+        await runTest(
+          CongestionControlAlgorithm.CUBIC,
+          CongestionControlAlgorithm.CUBIC,
+          testCase,
+          suiteDir,
+          run,
+          browser,
+        );
+        await runTest(
+          CongestionControlAlgorithm.BBR,
+          bbrVersion,
+          testCase,
+          suiteDir,
+          run,
+          browser,
+        );
       }
     }
     console.log("\nAll test completed");

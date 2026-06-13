@@ -1,4 +1,4 @@
-# TCP BBR (v1) vs CUBIC
+# TCP BBR vs CUBIC
 
 ### Video streaming testbed
 
@@ -28,9 +28,21 @@ R libraries: `ggplot2 dplyr patchwork svglite jsonlite`
 install.packages(c("ggplot2", "dplyr", "patchwork", "svglite", "jsonlite"))
 ```
 
-Linux kernel modules: `bbr` \
-Has to be loaded. \
-Does not need to be set as congestion control algorithm, as it will only be applied inside the container.
+Linux kernel modules: `bbr` and/or `bbr3` \
+The modules must be loaded into the host kernel and explicitly allowed so that Podman can access them. \
+They do not need to be set as the default congestion control algorithm for the host machine.
+
+For a kernel with only one bbr module:
+```bash
+sudo modprobe tcp_bbr
+sudo sysctl -w net.ipv4.tcp_allowed_congestion_control="cubic bbr"
+```
+Or, if using a kernel with both algorithms patched in (e.g. CachyOS):
+```bash
+sudo modprobe tcp_bbr
+sudo modprobe tcp_bbr3
+sudo sysctl -w net.ipv4.tcp_allowed_congestion_control="cubic bbr bbr3"
+```
 
 ## Architecture
 
@@ -93,8 +105,14 @@ Running the pipeline through the ctl exports the plots to './result_plots/'
 3. Run the test suite
 
 ```bash
-# If no number is given it will run 5 iterations
-./testbedctl run 10
+# Usage: ./testbedctl run [iterations_count] [bbr_version]
+# bbr_version can be 'bbr' (default) or 'bbr3'
+
+# Example: Run 10 iterations comparing CUBIC vs BBRv1
+./testbedctl run 10 bbr
+
+# Example: Run 5 iterations comparing CUBIC vs BBRv3
+./testbedctl run 5 bbr3
 ```
 
 To see all commands, use
@@ -106,7 +124,7 @@ To see all commands, use
 ## Methodology
 
 Testing consists of one or more iterations. \
-During an iteration the video is run for 5 minutes with each network scenario and each congestion control algorithm. \
+During an iteration the video is run for 5 minutes with each network scenario, comparing TCP CUBIC against the selected BBR version. \
 Each iteration takes about 1 hour to run.
 
 At the end the data for each network scenario + congestion control algorithm are averaged out and plotted. \
