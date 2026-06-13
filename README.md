@@ -100,7 +100,8 @@ Running the pipeline through the ctl exports the plots to './result_plots/'
 
 ## Usage
 
-1. Encode the video used for testing (must be at least 5 minutes)
+1. Encode the video used for testing. The video should be at least 5 minutes and 1080p. \
+*(Note: In my thesis I used [Big Buck Bunny at 1080p, 30fps](https://download.blender.org/demo/movies/BBB/))*
 
 ```bash
 ./testbedctl encode my_video.mp4
