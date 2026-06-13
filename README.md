@@ -28,16 +28,26 @@ R libraries: `ggplot2 dplyr patchwork svglite jsonlite`
 install.packages(c("ggplot2", "dplyr", "patchwork", "svglite", "jsonlite"))
 ```
 
+Playwright browser:
+
+```bash
+bun install
+bunx playwright install chromium
+```
+
 Linux kernel modules: `bbr` and/or `bbr3` \
 The modules must be loaded into the host kernel and explicitly allowed so that Podman can access them. \
 They do not need to be set as the default congestion control algorithm for the host machine.
 
 For a kernel with only one bbr module:
+
 ```bash
 sudo modprobe tcp_bbr
 sudo sysctl -w net.ipv4.tcp_allowed_congestion_control="cubic bbr"
 ```
+
 Or, if using a kernel with both algorithms patched in (e.g. CachyOS):
+
 ```bash
 sudo modprobe tcp_bbr
 sudo modprobe tcp_bbr3
